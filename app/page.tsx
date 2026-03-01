@@ -14,7 +14,19 @@ import { FooterSection } from "@/components/showcase/footer-section"
 
 const SimulationCanvas = dynamic(
   () => import("@/components/simulation/simulation-canvas").then((mod) => mod.SimulationCanvas),
-  { ssr: false }
+  {
+    ssr: false,
+    loading: () => (
+      <div className="absolute inset-0 flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+          <span className="text-xs font-mono text-muted-foreground tracking-widest">
+            INITIALIZING 3D ENGINE
+          </span>
+        </div>
+      </div>
+    ),
+  }
 )
 
 export default function AetherSimPage() {

@@ -71,7 +71,7 @@ function DroneTrail({ points }: { points: [number, number, number][] }) {
 
 export function Drone() {
   const groupRef = useRef<THREE.Group>(null)
-  const propRefs = useRef<THREE.Mesh[]>([])
+  const propRefs = useRef<(THREE.Mesh | null)[]>([])
   const glowRef = useRef<THREE.PointLight>(null)
 
   const {
