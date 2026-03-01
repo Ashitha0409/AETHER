@@ -65,6 +65,7 @@ interface SimulationState {
   manualMode: boolean
   disasterType: DisasterType
   riskLevel: number // 0 to 1
+  survivorFound: boolean
 
   generateDisaster: (type: DisasterType) => void
   deployAI: () => void
@@ -127,6 +128,7 @@ export const useSimulation = create<SimulationState>((set, get) => ({
   manualMode: true,
   disasterType: "flood",
   riskLevel: 0.5,
+  survivorFound: false,
   obstacles: [],
   buildingStates: [],
   waterLevel: 0,
@@ -157,7 +159,7 @@ export const useSimulation = create<SimulationState>((set, get) => ({
   difficultyLevel: 1,
 
   generateDisaster: (type) => {
-    set({ phase: "generating", disasterType: type })
+    set({ phase: "generating", disasterType: type, survivorFound: false })
 
     setTimeout(() => {
       const obstacles = generateObstacles(55, 40)
@@ -196,7 +198,7 @@ export const useSimulation = create<SimulationState>((set, get) => ({
         manualMode: true,
         targetPosition: [
           15 + Math.random() * 5,
-          type === "fire" ? 5 : 1, // Target might be higher on a building in fire
+          type === "fire" ? 6 : 2.5, // Target height for 3D search
           15 + Math.random() * 5,
         ],
         drone: {
@@ -208,7 +210,7 @@ export const useSimulation = create<SimulationState>((set, get) => ({
           pathHistory: [],
         },
       })
-    }, 1500)
+    }, 1200)
   },
 
   deployAI: () => {
@@ -323,6 +325,11 @@ export const useSimulation = create<SimulationState>((set, get) => ({
       // (Simplification for simulation state update - actual physics logic is in drone.tsx)
       // But we update telemetry values here
       drone.speed = moveWeight * 5
+
+      // Check for survivor rescue
+      if (dist < 1.5 && !state.survivorFound) {
+        set({ survivorFound: true, phase: "idle" })
+      }
     }
 
     // If drone is near a building, damage it

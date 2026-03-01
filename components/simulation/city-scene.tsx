@@ -51,6 +51,37 @@ function FireEffect({ intensity, scale }: { intensity: number; scale: [number, n
   )
 }
 
+// ── Survivor Component ──────────────────────────
+function Survivor({ position }: { position: [number, number, number] }) {
+  const group = useRef<THREE.Group>(null)
+
+  useFrame(({ clock }) => {
+    if (group.current) {
+      group.current.position.y = position[1] + Math.sin(clock.elapsedTime * 2) * 0.1
+    }
+  })
+
+  return (
+    <group ref={group} position={position}>
+      {/* Human Silhouette */}
+      <mesh position={[0, 0.45, 0]}>
+        <capsuleGeometry args={[0.15, 0.6, 4, 8]} />
+        <meshStandardMaterial color="#00ff88" emissive="#00ff88" emissiveIntensity={2} transparent opacity={0.8} />
+      </mesh>
+      {/* Outline/Aura */}
+      <mesh position={[0, 0.45, 0]} scale={1.2}>
+        <capsuleGeometry args={[0.16, 0.61, 4, 8]} />
+        <meshBasicMaterial color="#00ff88" transparent opacity={0.2} wireframe />
+      </mesh>
+      {/* Ground indicator */}
+      <mesh position={[0, -0.4, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.3, 0.35, 32]} />
+        <meshBasicMaterial color="#00ff88" transparent opacity={0.5} />
+      </mesh>
+    </group>
+  )
+}
+
 // ── Building block ──────────────────────────────
 function Building({ building }: { building: BuildingState }) {
   const { position, scale, stability, tilt, collapsedHeight, isDestroyed, hasFire } = building
@@ -100,11 +131,9 @@ function Building({ building }: { building: BuildingState }) {
 }
 
 // ── City grid ───────────────────────────────────
-export function CityGrid() {
-  const { buildingStates, floodGenerated } = useSimulation()
-
+export function CityGrid({ buildingStates }: { buildingStates: BuildingState[] }) {
   // During empty state, show static buildings if buildingStates is empty
-  if (buildingStates.length === 0) {
+  if (!buildingStates || buildingStates.length === 0) {
     return (
       <group>
         {Array.from({ length: 40 }).map((_, i) => {
@@ -290,6 +319,17 @@ export function TargetMarker({ position }: { position: [number, number, number] 
           opacity={0.3}
         />
       </mesh>
+    </group>
+  )
+}
+
+export function CityScene() {
+  const { buildingStates, targetPosition, survivorFound } = useSimulation()
+
+  return (
+    <group>
+      <CityGrid buildingStates={buildingStates} />
+      {!survivorFound && <Survivor position={targetPosition as [number, number, number]} />}
     </group>
   )
 }

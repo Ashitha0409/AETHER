@@ -1,8 +1,9 @@
 "use client"
 
 import { useRef, useMemo, useEffect, useState } from "react"
-import { useFrame } from "@react-three/fiber"
+import { useFrame, useThree } from "@react-three/fiber"
 import * as THREE from "three"
+import { PerspectiveCamera, Float, Trail } from "@react-three/drei"
 import { useSimulation } from "@/lib/simulation-store"
 
 // Sensor ray visualizer
@@ -18,6 +19,7 @@ function SensorRays({ position, sensors }: { position: [number, number, number];
       new THREE.Vector3(0.7, 0, -0.7).normalize(),
       new THREE.Vector3(-0.7, 0, 0.7).normalize(),
       new THREE.Vector3(0, -1, 0), // Downward
+      new THREE.Vector3(0, 1, 0),  // Upward
     ],
     []
   )
@@ -53,55 +55,21 @@ function SensorRays({ position, sensors }: { position: [number, number, number];
   )
 }
 
-// Ground heatmap indicating search coverage or risk
-function GroundHeatmap({ position, sensors }: { position: [number, number, number]; sensors: number[] }) {
-  const meshRef = useRef<THREE.Mesh>(null)
-  const minSensor = Math.min(...sensors.slice(0, 8)) // Ignore downward sensor for risk
-
-  useFrame(({ clock }) => {
-    if (meshRef.current) {
-      meshRef.current.position.set(position[0], 0.05, position[2])
-      meshRef.current.rotation.z += 0.01
-      const scale = 1.5 + Math.sin(clock.elapsedTime * 2) * 0.2
-      meshRef.current.scale.set(scale, scale, 1)
-    }
-  })
-
-  const color = minSensor < 2 ? "#ff3333" : minSensor < 4 ? "#ffaa00" : "#00e5ff"
-
-  return (
-    <mesh ref={meshRef} rotation={[-Math.PI / 2, 0, 0]}>
-      <planeGeometry args={[4, 4]} />
-      <meshBasicMaterial
-        color={color}
-        transparent
-        opacity={0.15}
-        alphaMap={new THREE.TextureLoader().load("https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/lensflare/lensflare0.png")}
-        blending={THREE.AdditiveBlending}
-      />
-    </mesh>
-  )
-}
-
 // Trail renderer for drone path
 function DroneTrail({ points }: { points: [number, number, number][] }) {
-  const lineRef = useRef<THREE.Line>(null)
-
-  useFrame(() => {
-    if (lineRef.current && points.length >= 2) {
-      const vecs = points.map((p) => new THREE.Vector3(...p))
-      lineRef.current.geometry.dispose()
-      lineRef.current.geometry = new THREE.BufferGeometry().setFromPoints(vecs)
-    }
-  })
-
   if (points.length < 2) return null
+  const vecs = points.map((p) => new THREE.Vector3(...p))
 
   return (
-    <line ref={lineRef}>
-      <bufferGeometry attach="geometry" onUpdate={(self) => self.setFromPoints(points.map(p => new THREE.Vector3(...p)))} />
-      <lineBasicMaterial attach="material" color="#00e5ff" opacity={0.3} transparent />
-    </line>
+    <Trail
+      width={1}
+      length={10}
+      color="#00e5ff"
+      attenuation={(t) => t * t}
+    >
+      {/* We use a simple parent mesh for the trail */}
+      <mesh position={points[points.length - 1]} />
+    </Trail>
   )
 }
 
@@ -109,6 +77,8 @@ export function Drone() {
   const groupRef = useRef<THREE.Group>(null)
   const propRefs = useRef<(THREE.Mesh | null)[]>([])
   const glowRef = useRef<THREE.PointLight>(null)
+  const povCameraRef = useRef<THREE.PerspectiveCamera>(null)
+  const { scene } = useThree()
 
   const {
     drone,
@@ -121,16 +91,19 @@ export function Drone() {
     telemetry,
     setPhase,
     waterLevel,
-    riskLevel, // Pulled from store
+    riskLevel,
+    manualMode,
+    survivorFound
   } = useSimulation()
 
   const startTime = useRef(0)
   const reward = useRef(0)
+  const velocity = useRef(new THREE.Vector3(0, 0, 0))
 
   useFrame(({ clock }, delta) => {
     if (!groupRef.current) return
 
-    // Spin propellers - speed up if running
+    // Spin propellers
     const propSpeed = phase === "running" ? 45 : 15
     propRefs.current.forEach((p) => {
       if (p) p.rotation.y += propSpeed * delta
@@ -141,219 +114,172 @@ export function Drone() {
       glowRef.current.intensity = 1.2 + Math.sin(clock.elapsedTime * 4) * 0.4
     }
 
-    // Drone orientation - slight tilt based on movement (simulated)
-    if (phase === "running") {
-      groupRef.current.rotation.x = Math.sin(clock.elapsedTime * 2) * 0.05 + 0.1
-      groupRef.current.rotation.z = Math.cos(clock.elapsedTime * 2) * 0.05
-    } else {
-      groupRef.current.rotation.x = Math.sin(clock.elapsedTime * 1) * 0.02
-      groupRef.current.rotation.z = Math.cos(clock.elapsedTime * 1) * 0.02
-    }
-
-    if (phase === "running" && aiDeployed) {
+    if (phase === "running" && aiDeployed && !survivorFound) {
       if (startTime.current === 0) startTime.current = clock.elapsedTime
 
-      const current = new THREE.Vector3(...drone.position)
-      const target = new THREE.Vector3(...targetPosition)
-      const direction = target.clone().sub(current).normalize()
-      const distance = current.distanceTo(target)
+      const currentPos = new THREE.Vector3(...drone.position)
+      const targetPos = new THREE.Vector3(...targetPosition)
+      const vel = velocity.current
 
-      // Obstacle avoidance: compute repulsion from nearby obstacles
-      const avoidance = new THREE.Vector3(0, 0, 0)
-      const sensorDistances = new Array(9).fill(15) // 8 horizontal + 1 downward
+      // 1. Goal Seeking Force
+      const distToTarget = currentPos.distanceTo(targetPos)
+      const goalDirection = targetPos.clone().sub(currentPos).normalize()
+      const goalForce = goalDirection.clone().multiplyScalar(5)
 
+      // 2. Obstacle Avoidance (3D)
+      const avoidanceForce = new THREE.Vector3(0, 0, 0)
+      const sensorDistances = new Array(10).fill(15)
+
+      // Horizontal & Vertical Proximity Check
       obstacles.forEach((obs) => {
         const obsPos = new THREE.Vector3(...obs.position)
-        const diff = current.clone().sub(obsPos)
+        const diff = currentPos.clone().sub(obsPos)
         const dist = diff.length()
         if (dist < 6) {
-          avoidance.add(diff.normalize().multiplyScalar(4 / (dist + 0.5)))
-
-          // Simplified sensor update (just find min distance for demonstration)
-          for (let i = 0; i < 8; i++) {
-            sensorDistances[i] = Math.min(sensorDistances[i], dist + (Math.random() * 0.5))
-          }
+          const repulse = diff.normalize().multiplyScalar(4 / (dist + 0.5))
+          avoidanceForce.add(repulse)
         }
       })
 
-      // Downward sensor to water level
-      sensorDistances[8] = Math.max(0, current.y - waterLevel)
-
-      // Reweight speed and avoidance based on riskLevel
-      // riskLevel 0: cautious (more avoidance, less speed)
-      // riskLevel 1: aggressive (less avoidance, more speed)
-      const speedWeight = THREE.MathUtils.lerp(2.8, 4.5, riskLevel) // Base speed 2.8, up to 4.5
-      const avoidanceWeight = THREE.MathUtils.lerp(2.0, 0.8, riskLevel) // Base avoidance 2.0, down to 0.8
-
-      // Combined movement: target seeking + obstacle avoidance
-      const combined = direction
-        .multiplyScalar(speedWeight)
-        .add(avoidance.multiplyScalar(avoidanceWeight))
-        .normalize()
-
-      const speed = Math.min(6, distance * 0.5 + 1.5)
-      const movement = combined.multiplyScalar(speed * delta)
-
-      // Anti-gravity bobbing logic
-      const targetY = 3.5 + (phase === "running" ? Math.sin(clock.elapsedTime * 2.5) * 0.3 : 0)
-      const newPos: [number, number, number] = [
-        current.x + movement.x,
-        targetY,
-        current.z + movement.z,
+      // Vertical Sensors (Raycasting for better precision)
+      const verticalDirs = [
+        new THREE.Vector3(0, 1, 0), // Up
+        new THREE.Vector3(0, -1, 0) // Down
       ]
+      verticalDirs.forEach((dir, idx) => {
+        const ray = new THREE.Raycaster(currentPos, dir, 0, 5)
+        const hits = ray.intersectObjects(scene.children, true)
+        if (hits.length > 0) {
+          const hitDist = hits[0].distance
+          sensorDistances[8 + idx] = hitDist
+          const forceMag = (2 / (hitDist + 0.2)) * (1 - riskLevel * 0.5)
+          avoidanceForce.y += idx === 0 ? -forceMag : forceMag
+        }
+      })
 
-      // Path history (sampled)
+      // Reweight based on risk
+      const speedWeight = THREE.MathUtils.lerp(3.0, 5.5, riskLevel)
+      const avoidanceWeight = THREE.MathUtils.lerp(2.0, 0.8, riskLevel)
+
+      const totalForce = goalForce.clone().multiplyScalar(speedWeight * 0.2)
+        .add(avoidanceForce.multiplyScalar(avoidanceWeight))
+
+      // Physics Integration
+      const friction = 0.94
+      velocity.current.add(totalForce.multiplyScalar(delta)).multiplyScalar(friction)
+
+      const movement = velocity.current.clone().multiplyScalar(delta * 10)
+      const nextPosVec = currentPos.clone().add(movement)
+
+      // Clamping
+      if (nextPosVec.y < 1.5) nextPosVec.y = 1.5
+      if (nextPosVec.y > 15) nextPosVec.y = 15
+
+      const nextPos: [number, number, number] = [nextPosVec.x, nextPosVec.y, nextPosVec.z]
+
+      // Path history
       const newHistory = [...drone.pathHistory]
-      if (
-        newHistory.length === 0 ||
-        new THREE.Vector3(...newHistory[newHistory.length - 1]).distanceTo(
-          new THREE.Vector3(...newPos)
-        ) > 0.4
-      ) {
-        newHistory.push(newPos)
-        if (newHistory.length > 250) newHistory.shift()
+      if (newHistory.length === 0 || nextPosVec.distanceTo(new THREE.Vector3(...newHistory[newHistory.length - 1])) > 0.4) {
+        newHistory.push(nextPos)
+        if (newHistory.length > 200) newHistory.shift()
       }
 
-      // Reward calculation
-      const prevDist = new THREE.Vector3(...drone.position).distanceTo(target)
-      const newDist = new THREE.Vector3(...newPos).distanceTo(target)
-      reward.current += (prevDist - newDist) * 3 // Forward reward
-      reward.current -= delta * 0.2 // Time penalty
-      if (Math.min(...sensorDistances) < 1.5) reward.current -= 5 * delta // Collision penalty
-
-      const episodeTime = clock.elapsedTime - startTime.current
-
+      // Update State
       updateDrone({
-        position: newPos,
-        speed: speed,
-        altitude: newPos[1] - waterLevel,
+        position: nextPos,
+        speed: velocity.current.length() * 5,
+        altitude: nextPos[1] - waterLevel,
         heading: Math.atan2(movement.x, movement.z) * (180 / Math.PI),
         sensors: sensorDistances,
         pathHistory: newHistory,
       })
 
       updateTelemetry({
-        distanceToTarget: newDist,
-        episodeTime: episodeTime,
-        rewardScore: reward.current,
-        fps: 59 + Math.random() * 2,
-        difficulty: Math.max(1, Math.min(5, Math.floor(reward.current / 40) + 1)),
+        distanceToTarget: distToTarget,
+        episodeTime: clock.elapsedTime - startTime.current,
+        rewardScore: (reward.current += (distToTarget < 2 ? 1 : 0)), // Simple accumulation
       })
 
-      // Target reached
-      if (distance < 2.5) {
-        reward.current += 500
+      // Mission Complete
+      if (distToTarget < 1.8) {
         updateDrone({ targetReached: true })
-        updateTelemetry({
-          rewardScore: reward.current,
-          successRate: Math.min(99.9, telemetry.successRate + 0.1)
-        })
         setPhase("complete")
-        startTime.current = 0
       }
     }
 
-    // Update group position
+    // Update group position & rotation
     groupRef.current.position.set(...drone.position)
-    if (phase === "running") {
-      // Smooth rotation towards heading
+    if (phase === "running" && velocity.current.length() > 0.1) {
       const targetRotation = (drone.heading * Math.PI) / 180
       groupRef.current.rotation.y = THREE.MathUtils.lerp(groupRef.current.rotation.y, targetRotation, 0.1)
     }
   })
 
-  const propPositions: [number, number, number][] = [
-    [0.6, 0.15, 0.6],
-    [-0.6, 0.15, 0.6],
-    [0.6, 0.15, -0.6],
-    [-0.6, 0.15, -0.6],
-  ]
+  const riskColor = riskLevel > 0.7 ? "#ff6b35" : "#00e5ff"
 
   return (
     <>
       <DroneTrail points={drone.pathHistory} />
       <SensorRays position={drone.position} sensors={drone.sensors} />
-      <GroundHeatmap position={drone.position} sensors={drone.sensors} />
 
       <group ref={groupRef}>
-        {/* Main Body - Carbon Fiber aesthetic */}
-        <mesh castShadow>
-          <boxGeometry args={[0.9, 0.18, 0.7]} />
-          <meshStandardMaterial color="#121212" metalness={0.8} roughness={0.2} />
-        </mesh>
+        <Float speed={1.5} rotationIntensity={0.2} floatIntensity={0.5}>
+          {/* Main Body */}
+          <mesh castShadow>
+            <boxGeometry args={[0.9, 0.18, 0.7]} />
+            <meshStandardMaterial color="#121212" metalness={0.8} roughness={0.2} />
+          </mesh>
 
-        {/* Top Protective Shell */}
-        <mesh position={[0, 0.12, 0]} castShadow>
-          <boxGeometry args={[0.4, 0.1, 0.5]} />
-          <meshStandardMaterial color="#00e5ff" metalness={0.9} roughness={0.1} />
-        </mesh>
+          {/* Core Glow */}
+          <mesh position={[0, 0.05, 0]}>
+            <sphereGeometry args={[0.2, 16, 16]} />
+            <meshStandardMaterial color={riskColor} emissive={riskColor} emissiveIntensity={3} />
+          </mesh>
 
-        {/* Risk-Reactive Core Glow */}
-        <mesh position={[0, 0.05, 0]}>
-          <sphereGeometry args={[0.2, 16, 16]} />
-          <meshStandardMaterial
-            color={riskLevel > 0.7 ? "#ff6b35" : "#00e5ff"}
-            emissive={riskLevel > 0.7 ? "#ff6b35" : "#00e5ff"}
-            emissiveIntensity={3}
-          />
-        </mesh>
+          {/* Arms & Rotors */}
+          {[[0.6, 0.15, 0.6], [-0.6, 0.15, 0.6], [0.6, 0.15, -0.6], [-0.6, 0.15, -0.6]].map((pos, i) => (
+            <group key={i}>
+              <mesh position={[pos[0] * 0.5, 0.05, pos[2] * 0.5]} rotation={[0, Math.atan2(pos[0], pos[2]), 0]}>
+                <boxGeometry args={[0.1, 0.08, 0.8]} />
+                <meshStandardMaterial color="#1a1a1a" />
+              </mesh>
+              <mesh position={pos as [number, number, number]}>
+                <cylinderGeometry args={[0.12, 0.12, 0.15, 8]} />
+                <meshStandardMaterial color="#333" />
+              </mesh>
+              <mesh
+                ref={(el) => { if (el) propRefs.current[i] = el }}
+                position={[pos[0], pos[1] + 0.08, pos[2]] as [number, number, number]}
+              >
+                <cylinderGeometry args={[0.45, 0.45, 0.01, 3]} />
+                <meshStandardMaterial color={riskColor} transparent opacity={0.4} />
+              </mesh>
+            </group>
+          ))}
 
-        {/* Structural Arms */}
-        {propPositions.map((pos, i) => (
-          <group key={i}>
-            <mesh position={[pos[0] * 0.5, 0.05, pos[2] * 0.5]} rotation={[0, Math.atan2(pos[0], pos[2]), 0]}>
-              <boxGeometry args={[0.1, 0.08, 0.8]} />
-              <meshStandardMaterial color="#1a1a1a" metalness={0.7} roughness={0.3} />
+          {/* FRONT Camera & Sensor */}
+          <group position={[0, 0.05, 0.4]}>
+            <mesh>
+              <boxGeometry args={[0.2, 0.1, 0.1]} />
+              <meshStandardMaterial color="#1a1a1a" />
             </mesh>
-            {/* Rotor Motors */}
-            <mesh position={pos}>
-              <cylinderGeometry args={[0.12, 0.12, 0.15, 8]} />
-              <meshStandardMaterial color="#333" />
+            <mesh position={[0, 0, 0.06]}>
+              <sphereGeometry args={[0.04, 16, 16]} />
+              <meshStandardMaterial color={aiDeployed ? "#00ff88" : "#ff3333"} emissive={aiDeployed ? "#00ff88" : "#ff3333"} emissiveIntensity={2} />
             </mesh>
-            {/* Propellers - Semi-transparent cyan */}
-            <mesh
-              ref={(el) => {
-                if (el) propRefs.current[i] = el
-              }}
-              position={[pos[0], pos[1] + 0.08, pos[2]]}
-            >
-              <cylinderGeometry args={[0.45, 0.45, 0.01, 3]} />
-              <meshStandardMaterial
-                color="#00e5ff"
-                emissive="#00e5ff"
-                emissiveIntensity={0.8}
-                transparent
-                opacity={0.4}
-              />
-            </mesh>
+            {/* THE POV CAMERA */}
+            <PerspectiveCamera
+              makeDefault={false}
+              ref={povCameraRef}
+              fov={70}
+              position={[0, 0, 0]}
+              rotation={[0, 0, 0]}
+              name="dronePOV"
+            />
           </group>
-        ))}
+        </Float>
 
-        {/* Underside Navigation Light */}
-        <pointLight
-          ref={glowRef}
-          position={[0, -0.4, 0]}
-          color="#00e5ff"
-          intensity={2.5}
-          distance={6}
-          decay={2}
-        />
-
-        {/* AI Processing Unit Hub (Front) */}
-        <mesh position={[0, 0, 0.4]}>
-          <boxGeometry args={[0.3, 0.1, 0.15]} />
-          <meshStandardMaterial color="#1a1a1a" />
-        </mesh>
-
-        {/* Status Optical Sensor */}
-        <mesh position={[0, 0.05, 0.42]}>
-          <sphereGeometry args={[0.06, 16, 16]} />
-          <meshStandardMaterial
-            color={aiDeployed ? "#00ff88" : "#ff3333"}
-            emissive={aiDeployed ? "#00ff88" : "#ff3333"}
-            emissiveIntensity={4}
-          />
-        </mesh>
+        <pointLight ref={glowRef} position={[0, -0.4, 0]} color={riskColor} intensity={2.5} distance={6} />
       </group>
     </>
   )

@@ -25,14 +25,19 @@ const SimulationCanvas = dynamic(
   }
 )
 
+const PovWindow = dynamic(
+  () => import("@/components/simulation/pov-window").then((mod) => mod.PovWindow),
+  { ssr: false }
+)
+
 export default function SimulationPage() {
   return (
     <div className="bg-background text-foreground h-screen w-full overflow-hidden flex flex-col">
       <section className="relative flex-1 w-full overflow-hidden">
         {/* Back Button */}
         <div className="absolute top-4 left-4 z-40">
-          <Link 
-            href="/" 
+          <Link
+            href="/"
             className="flex items-center gap-2 rounded-lg border border-border/50 bg-background/50 px-3 py-1.5 font-mono text-[10px] text-muted-foreground transition-all hover:bg-background hover:text-primary backdrop-blur-sm"
           >
             <ArrowLeft className="h-3 w-3" />
@@ -53,14 +58,14 @@ export default function SimulationPage() {
         <SimulationCanvas />
 
         {/* UI Overlay */}
-        <div className="pointer-events-none absolute inset-0 z-10 flex flex-col p-3 gap-3 md:p-4 md:gap-4">
-          {/* Top bar moved down slightly to avoid back button overlap on small screens */}
-          <div className="pointer-events-auto pt-10">
+        <div className="pointer-events-none absolute inset-0 z-10 flex flex-col p-3 gap-4 md:p-6 md:gap-6">
+          {/* Top bar header */}
+          <div className="pointer-events-auto shrink-0 mt-8">
             <StatusHeader />
           </div>
 
           {/* Main content area */}
-          <div className="flex flex-1 gap-3 md:gap-4 min-h-0">
+          <div className="flex flex-1 gap-4 md:gap-6 min-h-0 min-w-0">
             {/* Left panel */}
             <div className="pointer-events-auto flex flex-col gap-3 md:gap-4 w-56 md:w-64 shrink-0 overflow-y-auto no-scrollbar pb-4">
               <ControlPanel />
@@ -71,7 +76,8 @@ export default function SimulationPage() {
             <div className="flex-1" />
 
             {/* Right panel */}
-            <div className="pointer-events-auto w-56 md:w-64 shrink-0 overflow-y-auto no-scrollbar pb-4">
+            <div className="pointer-events-auto w-56 md:w-64 shrink-0 overflow-y-auto no-scrollbar pb-4 flex flex-col gap-3 md:gap-4">
+              <PovWindow />
               <TelemetryPanel />
             </div>
           </div>

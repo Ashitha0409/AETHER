@@ -53,7 +53,7 @@ function LatencyBar({ value, max, color }: { value: number; max: number; color: 
 }
 
 export function TelemetryPanel() {
-  const { drone, telemetry, computeMode, phase } = useSimulation()
+  const { drone, telemetry, computeMode, phase, survivorFound } = useSimulation()
   const [time, setTime] = useState("00:00")
 
   useEffect(() => {
@@ -85,6 +85,13 @@ export function TelemetryPanel() {
         <TelemetryRow icon={Layers} label="Altitude" value={drone.altitude.toFixed(1)} unit="m" color="text-[#00ff88]" />
         <TelemetryRow icon={Target} label="Distance" value={telemetry.distanceToTarget.toFixed(1)} unit="m" color="text-warning" />
         <TelemetryRow icon={Timer} label="Mission" value={time} unit="" />
+        <TelemetryRow
+          icon={Activity}
+          label="Target"
+          value={survivorFound ? "LOCATED" : "SEARCHING"}
+          unit=""
+          color={survivorFound ? "text-[#00ff88]" : "text-muted-foreground"}
+        />
       </div>
 
       <div className="border-t border-border/30 pt-2 mt-1">
