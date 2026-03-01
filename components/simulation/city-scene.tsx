@@ -63,32 +63,26 @@ export function Ground() {
 
 // ── Street lines ────────────────────────────────
 export function StreetGrid() {
-  const lines = useMemo(() => {
-    const pts: [number, number, number][] = []
+  const lineObjects = useMemo(() => {
+    const result: THREE.Line[] = []
+    const material = new THREE.LineBasicMaterial({ color: "#1a2535", opacity: 0.5, transparent: true })
+
     for (let i = -5; i <= 5; i++) {
       // Horizontal
-      pts.push([-45, 0.01, i * 8])
-      pts.push([45, 0.01, i * 8])
+      const hPts = [new THREE.Vector3(-45, 0.01, i * 8), new THREE.Vector3(45, 0.01, i * 8)]
+      result.push(new THREE.Line(new THREE.BufferGeometry().setFromPoints(hPts), material))
       // Vertical
-      pts.push([i * 8, 0.01, -45])
-      pts.push([i * 8, 0.01, 45])
+      const vPts = [new THREE.Vector3(i * 8, 0.01, -45), new THREE.Vector3(i * 8, 0.01, 45)]
+      result.push(new THREE.Line(new THREE.BufferGeometry().setFromPoints(vPts), material))
     }
-    return pts
+    return result
   }, [])
 
   return (
     <group>
-      {Array.from({ length: lines.length / 2 }).map((_, i) => {
-        const start = lines[i * 2]
-        const end = lines[i * 2 + 1]
-        const points = [new THREE.Vector3(...start), new THREE.Vector3(...end)]
-        const geometry = new THREE.BufferGeometry().setFromPoints(points)
-        return (
-          <lineSegments key={i} geometry={geometry}>
-            <lineBasicMaterial color="#1a2535" opacity={0.5} transparent />
-          </lineSegments>
-        )
-      })}
+      {lineObjects.map((line, i) => (
+        <primitive key={i} object={line} />
+      ))}
     </group>
   )
 }

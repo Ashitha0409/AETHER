@@ -19,41 +19,53 @@ function SensorRays({ position, sensors }: { position: [number, number, number];
     []
   )
 
+  const rays = useMemo(() => {
+    return directions.map((dir, i) => {
+      const dist = sensors[i] ?? 10
+      const pts = [new THREE.Vector3(0, 0, 0), dir.clone().multiplyScalar(dist)]
+      const geometry = new THREE.BufferGeometry().setFromPoints(pts)
+      const isNear = dist < 4
+      const material = new THREE.LineBasicMaterial({
+        color: isNear ? "#ff3333" : "#00e5ff",
+        opacity: isNear ? 0.8 : 0.25,
+        transparent: true,
+      })
+      return new THREE.Line(geometry, material)
+    })
+  }, [directions, sensors])
+
   return (
     <group position={position}>
-      {directions.map((dir, i) => {
-        const dist = sensors[i] ?? 10
-        const pts = [new THREE.Vector3(0, 0, 0), dir.clone().multiplyScalar(dist)]
-        const geometry = new THREE.BufferGeometry().setFromPoints(pts)
-        const isNear = dist < 4
-        return (
-          <lineSegments key={i} geometry={geometry}>
-            <lineBasicMaterial
-              color={isNear ? "#ff3333" : "#00e5ff"}
-              opacity={isNear ? 0.8 : 0.25}
-              transparent
-            />
-          </lineSegments>
-        )
-      })}
+      {rays.map((ray, i) => (
+        <primitive key={i} object={ray} />
+      ))}
     </group>
   )
 }
 
 // Trail renderer for drone path
 function DroneTrail({ points }: { points: [number, number, number][] }) {
-  const geometry = useMemo(() => {
-    if (points.length < 2) return null
-    const vecs = points.map((p) => new THREE.Vector3(...p))
-    return new THREE.BufferGeometry().setFromPoints(vecs)
-  }, [points])
+  const lineRef = useRef<THREE.Line>(null)
 
-  if (!geometry) return null
+  useFrame(() => {
+    if (lineRef.current && points.length >= 2) {
+      const vecs = points.map((p) => new THREE.Vector3(...p))
+      lineRef.current.geometry.dispose()
+      lineRef.current.geometry = new THREE.BufferGeometry().setFromPoints(vecs)
+    }
+  })
+
+  if (points.length < 2) return null
+
+  const initialGeo = new THREE.BufferGeometry().setFromPoints(
+    points.map((p) => new THREE.Vector3(...p))
+  )
 
   return (
-    <line geometry={geometry}>
-      <lineBasicMaterial color="#00e5ff" opacity={0.4} transparent linewidth={1} />
-    </line>
+    <primitive
+      ref={lineRef}
+      object={new THREE.Line(initialGeo, new THREE.LineBasicMaterial({ color: "#00e5ff", opacity: 0.4, transparent: true }))}
+    />
   )
 }
 
