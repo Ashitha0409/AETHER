@@ -1,8 +1,9 @@
 "use client"
 
-import { ArrowDown, Cpu, Zap, Shield, Brain } from "lucide-react"
+import { ArrowRight, Cpu, Zap, Shield, Brain } from "lucide-react"
+import Link from "next/link"
 
-export function HeroSection({ onScrollToSim }: { onScrollToSim: () => void }) {
+export function HeroSection() {
   return (
     <section className="relative min-h-screen flex flex-col items-center justify-center px-6 overflow-hidden">
       {/* Grid background */}
@@ -34,7 +35,7 @@ export function HeroSection({ onScrollToSim }: { onScrollToSim: () => void }) {
           <h1 className="text-5xl md:text-7xl font-mono font-bold text-foreground tracking-tight text-balance">
             AETHER-SIM
           </h1>
-          <p className="text-lg md:text-xl font-mono text-primary tracking-wider">
+          <p className="text-lg md:text-xl font-mono text-primary tracking-wider font-medium">
             Adaptive Synthetic Disaster Training Engine
           </p>
         </div>
@@ -63,20 +64,21 @@ export function HeroSection({ onScrollToSim }: { onScrollToSim: () => void }) {
         </div>
 
         {/* CTA */}
-        <button
-          onClick={onScrollToSim}
+        <Link
+          href="/simulation"
           className="group flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/10 px-6 py-3 font-mono text-sm text-primary transition-all hover:bg-primary/20 hover:border-primary/50"
         >
           <span>LAUNCH SIMULATION</span>
-          <ArrowDown className="h-4 w-4 transition-transform group-hover:translate-y-0.5" />
-        </button>
+          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+        </Link>
       </div>
 
       {/* Scroll indicator */}
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
-        <span className="text-[9px] font-mono text-muted-foreground tracking-widest">SCROLL</span>
+        <span className="text-[9px] font-mono text-muted-foreground tracking-widest uppercase">Explore Details</span>
         <div className="h-8 w-px bg-gradient-to-b from-primary/40 to-transparent" />
       </div>
     </section>
   )
 }
+

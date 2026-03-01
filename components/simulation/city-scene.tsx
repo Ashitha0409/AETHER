@@ -3,51 +3,141 @@
 import { useRef, useMemo } from "react"
 import { useFrame } from "@react-three/fiber"
 import * as THREE from "three"
-import type { Obstacle } from "@/lib/simulation-store"
+import { useSimulation, type Obstacle, type BuildingState } from "@/lib/simulation-store"
+
+// ── Window Lights Component ─────────────────────
+function WindowLights({ scale, collapsedHeight }: { scale: [number, number, number]; collapsedHeight: number }) {
+  return (
+    <group>
+      {Array.from({ length: Math.floor(collapsedHeight) }).map((_, i) => (
+        <mesh key={i} position={[0, (i - collapsedHeight / 2) * 1.5 + 0.5, scale[2] / 2 + 0.05]}>
+          <planeGeometry args={[scale[0] * 0.7, 0.05]} />
+          <meshStandardMaterial
+            color="#00e5ff"
+            emissive="#00e5ff"
+            emissiveIntensity={Math.random() > 0.4 ? 2.5 : 0.1}
+            transparent
+            opacity={0.9}
+          />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
+// ── Fire Effect Component ───────────────────────
+function FireEffect({ intensity, scale }: { intensity: number; scale: [number, number, number] }) {
+  const fireRef = useRef<THREE.Group>(null)
+
+  useFrame(({ clock }) => {
+    if (fireRef.current) {
+      fireRef.current.scale.setScalar(intensity * (1 + Math.sin(clock.elapsedTime * 10) * 0.1))
+    }
+  })
+
+  return (
+    <group ref={fireRef} position={[0, 0, scale[2] / 2 + 0.1]}>
+      {/* Flame cores */}
+      <mesh position={[0, 1, 0]}>
+        <sphereGeometry args={[scale[0] * 0.4, 8, 8]} />
+        <meshStandardMaterial color="#ff4500" emissive="#ff4500" emissiveIntensity={5} />
+      </mesh>
+      {/* Outer glow */}
+      <mesh position={[0, 1.5, 0]}>
+        <sphereGeometry args={[scale[0] * 0.6, 8, 8]} />
+        <meshStandardMaterial color="#ff8c00" transparent opacity={0.4} />
+      </mesh>
+    </group>
+  )
+}
 
 // ── Building block ──────────────────────────────
-function Building({ position, scale }: { position: [number, number, number]; scale: [number, number, number] }) {
+function Building({ building }: { building: BuildingState }) {
+  const { position, scale, stability, tilt, collapsedHeight, isDestroyed, hasFire } = building
+
+  const color = isDestroyed ? "#2a2d3a" : "#3a415a"
+
   return (
-    <mesh position={[position[0], scale[1] / 2, position[2]]} castShadow receiveShadow>
-      <boxGeometry args={scale} />
-      <meshStandardMaterial color="#1a1f2e" roughness={0.8} metalness={0.2} />
-    </mesh>
+    <group position={[position[0], collapsedHeight / 2, position[2]]} rotation={[tilt[0], 0, tilt[1]]}>
+      {/* Main structure or broken segments */}
+      {isDestroyed ? (
+        <group>
+          {/* Smashed base */}
+          <mesh castShadow receiveShadow>
+            <boxGeometry args={[scale[0], collapsedHeight * 0.4, scale[2]]} />
+            <meshStandardMaterial color="#2d221a" roughness={1} />
+          </mesh>
+          {/* Slanted ruins */}
+          <mesh position={[0.5, collapsedHeight * 0.3, 0]} rotation={[0.2, 0.1, 0.4]} castShadow>
+            <boxGeometry args={[scale[0] * 0.8, collapsedHeight * 0.5, scale[2] * 0.8]} />
+            <meshStandardMaterial color={color} roughness={0.9} />
+          </mesh>
+          {/* Rebar poking out */}
+          <mesh position={[-0.8, collapsedHeight * 0.2, 0.8]} rotation={[0.5, 0, 0]}>
+            <cylinderGeometry args={[0.02, 0.02, 2, 4]} />
+            <meshStandardMaterial color="#444" metalness={1} />
+          </mesh>
+        </group>
+      ) : (
+        <>
+          <mesh castShadow receiveShadow>
+            <boxGeometry args={[scale[0], collapsedHeight, scale[2]]} />
+            <meshStandardMaterial color={color} roughness={0.6} metalness={0.3} />
+          </mesh>
+          <WindowLights scale={scale} collapsedHeight={collapsedHeight} />
+          {/* Roof detail */}
+          <mesh position={[0, collapsedHeight / 2 + 0.05, 0]}>
+            <boxGeometry args={[scale[0] * 0.9, 0.1, scale[2] * 0.9]} />
+            <meshStandardMaterial color="#1a1c25" />
+          </mesh>
+        </>
+      )}
+
+      {/* Raging Fire */}
+      {hasFire && <FireEffect intensity={1} scale={scale} />}
+    </group>
   )
 }
 
 // ── City grid ───────────────────────────────────
 export function CityGrid() {
-  const buildings = useMemo(() => {
-    const arr: { position: [number, number, number]; scale: [number, number, number] }[] = []
-    const gridSize = 5
-    const spacing = 8
+  const { buildingStates, floodGenerated } = useSimulation()
 
-    for (let x = -gridSize; x <= gridSize; x++) {
-      for (let z = -gridSize; z <= gridSize; z++) {
-        // Leave empty space for streets
-        if (Math.abs(x) % 2 === 0 && Math.abs(z) % 2 === 0) continue
-        // Skip some buildings randomly for variety
-        if (Math.random() < 0.15) continue
+  // During empty state, show static buildings if buildingStates is empty
+  if (buildingStates.length === 0) {
+    return (
+      <group>
+        {Array.from({ length: 40 }).map((_, i) => {
+          const x = (i % 6 - 3) * 8
+          const z = (Math.floor(i / 6) - 3) * 8
+          if (Math.abs(x) < 4 && Math.abs(z) < 4) return null
 
-        const height = 1.5 + Math.random() * 5
-        const width = 2 + Math.random() * 2.5
-        const depth = 2 + Math.random() * 2.5
+          // Deterministic "Broken" look for placeholder
+          const isBroken = (i % 3 === 0)
+          const baseHeight = 4 + (i % 5) * 2
 
-        arr.push({
-          position: [x * spacing, 0, z * spacing],
-          scale: [width, height, depth],
-        })
-      }
-    }
-    return arr
-  }, [])
+          return <Building key={i} building={{
+            id: `placeholder-${i}`,
+            position: [x, 0, z],
+            scale: [3, baseHeight, 3],
+            stability: isBroken ? 0.4 : 1.0,
+            tilt: [isBroken ? 0.1 : 0, 0] as [number, number],
+            collapsedHeight: isBroken ? baseHeight * 0.7 : baseHeight,
+            isDestroyed: isBroken,
+            hasFire: false,
+            fireIntensity: 0
+          }} />
+        })}
+      </group>
+    )
+  }
 
   return (
-    <>
-      {buildings.map((b, i) => (
-        <Building key={i} position={b.position} scale={b.scale} />
+    <group>
+      {buildingStates.map((b: BuildingState) => (
+        <Building key={b.id} building={b} />
       ))}
-    </>
+    </group>
   )
 }
 
@@ -91,8 +181,10 @@ export function StreetGrid() {
 const obstacleColors: Record<string, string> = {
   debris: "#3a2a1a",
   pole: "#4a4a4a",
-  car: "#2a1a1a",
+  car: "#2d3436",
   barrier: "#4a3520",
+  concrete: "#636e72",
+  metal: "#2d3436",
 }
 
 export function ObstacleField({ obstacles }: { obstacles: Obstacle[] }) {
@@ -102,18 +194,20 @@ export function ObstacleField({ obstacles }: { obstacles: Obstacle[] }) {
         <mesh
           key={obs.id}
           position={obs.position}
-          rotation={[0, obs.rotation, obs.type === "pole" ? Math.random() * 0.5 : 0]}
+          rotation={[Math.random(), obs.rotation, Math.random()]}
           castShadow
         >
           {obs.type === "pole" ? (
             <cylinderGeometry args={[obs.scale[0], obs.scale[0], obs.scale[1], 6]} />
+          ) : obs.type === "debris" ? (
+            <dodecahedronGeometry args={[obs.scale[0]]} />
           ) : (
             <boxGeometry args={obs.scale} />
           )}
           <meshStandardMaterial
-            color={obstacleColors[obs.type]}
+            color={obstacleColors[obs.type] || "#444"}
             roughness={0.9}
-            metalness={0.1}
+            metalness={obs.type === "metal" ? 0.8 : 0.1}
           />
         </mesh>
       ))}
@@ -127,24 +221,33 @@ export function WaterPlane({ level }: { level: number }) {
 
   useFrame(({ clock }) => {
     if (ref.current) {
-      ref.current.position.y = level + Math.sin(clock.elapsedTime * 0.5) * 0.05
+      ref.current.position.y = level + Math.sin(clock.elapsedTime * 0.4) * 0.08
     }
   })
 
   if (level <= 0) return null
 
   return (
-    <mesh ref={ref} rotation={[-Math.PI / 2, 0, 0]} position={[0, level, 0]}>
-      <planeGeometry args={[100, 100, 32, 32]} />
-      <meshStandardMaterial
-        color="#0a3d5c"
-        transparent
-        opacity={0.55}
-        roughness={0.1}
-        metalness={0.8}
-        side={THREE.DoubleSide}
-      />
-    </mesh>
+    <group>
+      <mesh ref={ref} rotation={[-Math.PI / 2, 0, 0]} position={[0, level, 0]} receiveShadow>
+        <planeGeometry args={[120, 120, 64, 64]} />
+        <meshStandardMaterial
+          color="#124a6e"
+          transparent
+          opacity={0.7}
+          roughness={0.05}
+          metalness={0.9}
+          emissive="#001a2e"
+          emissiveIntensity={0.5}
+        />
+      </mesh>
+
+      {/* Sub-surface depth layer */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, level - 0.2, 0]}>
+        <planeGeometry args={[120, 120]} />
+        <meshBasicMaterial color="#051a29" transparent opacity={0.4} />
+      </mesh>
+    </group>
   )
 }
 

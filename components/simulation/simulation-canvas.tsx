@@ -8,28 +8,27 @@ import { Drone } from "./drone"
 import { useSimulation } from "@/lib/simulation-store"
 
 function Scene() {
-  const { obstacles, waterLevel, floodGenerated, targetPosition, fogIntensity } = useSimulation()
+  const { obstacles, waterLevel, floodGenerated, targetPosition, fogIntensity, disasterType } = useSimulation()
+
+  const fogColor = disasterType === "fire" ? "#1a0805" : "#080c14"
+  const ambientColor = disasterType === "fire" ? "#ff6633" : "#5588ff"
+  const fogDensity = disasterType === "fire" ? 1.2 : 1.0
 
   return (
     <>
       {/* Lighting */}
-      <ambientLight intensity={0.15} color="#4466aa" />
+      <ambientLight intensity={disasterType === "fire" ? 0.3 : 0.4} color={ambientColor} />
       <directionalLight
-        position={[30, 40, 20]}
-        intensity={0.4}
-        color="#88aaff"
+        position={[40, 60, 30]}
+        intensity={0.8}
+        color="#ffffff"
         castShadow
         shadow-mapSize={[2048, 2048]}
-        shadow-camera-far={100}
-        shadow-camera-left={-50}
-        shadow-camera-right={50}
-        shadow-camera-top={50}
-        shadow-camera-bottom={-50}
       />
-      <pointLight position={[0, 20, 0]} intensity={0.2} color="#00e5ff" />
+      <pointLight position={[0, 30, 0]} intensity={0.5} color="#00e5ff" />
 
       {/* Atmosphere */}
-      <fog attach="fog" args={["#080c14", 20, 80 - fogIntensity * 80]} />
+      <fog attach="fog" args={[fogColor, 20, 100 - fogIntensity * 80 * (1 / fogDensity)]} />
       <Stars radius={100} depth={50} count={2000} factor={3} saturation={0} fade speed={0.5} />
 
       {/* City */}

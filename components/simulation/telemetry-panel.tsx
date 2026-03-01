@@ -71,9 +71,8 @@ export function TelemetryPanel() {
         </div>
         <div className="flex items-center gap-1.5">
           <div
-            className={`h-1.5 w-1.5 rounded-full ${
-              phase === "running" ? "bg-[#00ff88] animate-pulse" : "bg-muted-foreground"
-            }`}
+            className={`h-1.5 w-1.5 rounded-full ${phase === "running" ? "bg-[#00ff88] animate-pulse" : "bg-muted-foreground"
+              }`}
           />
           <span className="text-[9px] font-mono text-muted-foreground uppercase">
             {phase === "running" ? "RECORDING" : phase.toUpperCase()}
@@ -150,25 +149,37 @@ export function TelemetryPanel() {
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Thermometer className="h-3 w-3 text-warning" />
-          <span className="text-[9px] font-mono text-muted-foreground">DIFFICULTY</span>
+          <TrendingUp className="h-3 w-3 text-primary" />
+          <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">Success Rate</span>
         </div>
-        <div className="flex gap-0.5">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div
-              key={i}
-              className={`h-2 w-3 rounded-sm ${
-                i < telemetry.difficulty ? "bg-warning" : "bg-secondary"
-              }`}
-            />
-          ))}
+        <span className="text-sm font-mono font-bold text-[#00ff88]">
+          {telemetry.successRate.toFixed(1)}%
+        </span>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Thermometer className="h-3 w-3 text-warning" />
+          <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">Difficulty</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-mono font-bold text-foreground">LV. {telemetry.difficulty}</span>
+          <div className="flex gap-0.5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div
+                key={i}
+                className={`h-2 w-3 rounded-sm ${i < telemetry.difficulty ? "bg-warning" : "bg-secondary/50"
+                  }`}
+              />
+            ))}
+          </div>
         </div>
       </div>
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Zap className="h-3 w-3 text-[#00ff88]" />
-          <span className="text-[9px] font-mono text-muted-foreground">FPS</span>
+          <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">FPS</span>
         </div>
         <span className="text-sm font-mono font-bold text-foreground">{telemetry.fps.toFixed(0)}</span>
       </div>
